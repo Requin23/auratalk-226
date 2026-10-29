@@ -7,7 +7,7 @@
 - **Synapse / Matrix** : serveur de messagerie ; les clients Element chiffrent les salons E2EE avec les protocoles Matrix.
 - **PostgreSQL** : données Synapse.
 - **Redis** : sessions applicatives, état d’enrôlement et limitation des tentatives.
-- **Element Web** : client web fourni localement.
+- **PWA AuraTalk** : client Matrix JS SDK local avec crypto Rust/WASM, salons chiffrés et file d’envoi hors ligne.
 - **Express + Socket.IO** : enrôlement, connexion avec OTP et révocation.
 - **Nginx** : point d’entrée local sur le port 8080.
 
@@ -49,9 +49,9 @@ La révocation désactive le compte Synapse, révoque ses jetons, supprime son e
 
 ## Données et limites du prototype
 
-Dans un salon Matrix chiffré, le serveur stocke les événements chiffrés, mais conserve des métadonnées nécessaires au routage (salons, membres, appareils et horodatages). L’adresse IP peut aussi être traitée par le serveur ou le réseau. Nginx n’enregistre pas les requêtes d’accès dans cette configuration.
+Le client initialise la crypto E2EE du SDK Matrix. Synapse chiffre par défaut chaque salon local et le module `synapse/encryption_policy.py` refuse les événements de discussion non chiffrés ; les états de salon (noms, membres, adhésions) restent des métadonnées lisibles. Le serveur conserve également les identifiants de salons, appareils et horodatages. L’adresse IP peut être traitée par le serveur ou le réseau. Nginx n’enregistre pas les requêtes d’accès.
 
-**Créer les salons avec le chiffrement activé.** Cette première étape ne force pas encore le chiffrement pour chaque nouveau salon et ne constitue pas une validation de sécurité de production. Le point d’entrée est en HTTP pour la démonstration locale ; ajouter TLS avant tout accès depuis un réseau partagé. L’interface PWA hors ligne et les commandes en Mooré/Dioula restent à réaliser.
+Les brouillons écrits hors ligne sont conservés en clair dans IndexedDB sur l’appareil jusqu’à leur envoi ; Matrix JS SDK chiffre le message au moment de l’envoi dès que le réseau revient. Protéger les appareils et leur profil navigateur. Un appareil hors ligne ne peut pas recevoir une commande d’effacement à distance : son cache E2EE local sera supprimé au retour en ligne après détection de révocation, mais les brouillons encore hors ligne ne sont pas effaçables à distance. Le point d’entrée est en HTTP pour démonstration locale ; ajouter TLS avant tout accès depuis un réseau partagé. Les commandes vocales en Mooré/Dioula restent à réaliser. 
 
 Comptes fictifs prévus : `agent1@gouv.bf`, `agent2@gouv.bf`, `revoque@gouv.bf`. Ils ne sont pas créés automatiquement ; seul un compte explicitement enrôlé peut se connecter.
 
