@@ -1,0 +1,11 @@
+{
+  "name": "AuraTalk-226",
+  "short_name": "AuraTalk",
+  "description": "Messagerie souveraine chiffrée",
+  "lang": "fr",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#102a43",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
