@@ -93,6 +93,7 @@ services:
       MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?Définir MATRIX_SERVER_NAME dans .env}
       REDIS_URL: redis://redis:6379
       REVOCATION_API_KEY: ${REVOCATION_API_KEY:?Définir REVOCATION_API_KEY dans .env}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:?Définir TOTP_ENCRYPTION_KEY dans .env}
     depends_on:
       redis:
         condition: service_healthy
