@@ -9,7 +9,8 @@ const { Server } = require("socket.io");
 
 const required = [
   "SYNAPSE_URL",
-  "SYNAPSE_ADMIN_TOKEN",
+  "SYNAPSE_ADMIN_USER",
+  "SYNAPSE_ADMIN_PASSWORD",
   "MATRIX_SERVER_NAME",
   "REDIS_URL",
   "REVOCATION_API_KEY",
@@ -32,6 +33,7 @@ redis.on("error", (error) => console.error("Redis :", error.message));
 
 const serverName = process.env.MATRIX_SERVER_NAME;
 const synapseUrl = process.env.SYNAPSE_URL.replace(/\/+$/, "");
+let synapseAdminToken;
 authenticator.options = { window: 1, step: 30, digits: 6 };
 
 function encryptSecret(secret) {
@@ -141,7 +143,7 @@ app.post("/admin/agents/:agentId/enroll", authorize, async (req, res) => {
       {
         method: "PUT",
         headers: {
-          Authorization: "Bearer " + process.env.SYNAPSE_ADMIN_TOKEN,
+          Authorization: "Bearer " + synapseAdminToken,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -268,7 +270,7 @@ app.post("/admin/agents/:agentId/revoke", authorize, async (req, res) => {
       {
         method: "POST",
         headers: {
-          Authorization: "Bearer " + process.env.SYNAPSE_ADMIN_TOKEN,
+          Authorization: "Bearer " + synapseAdminToken,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ erase: false }),
@@ -304,6 +306,21 @@ app.post("/admin/agents/:agentId/revoke", authorize, async (req, res) => {
 
 async function start() {
   await redis.connect();
+  const adminLogin = await fetch(synapseUrl + "/_matrix/client/v3/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "m.login.password",
+      identifier: { type: "m.id.user", user: process.env.SYNAPSE_ADMIN_USER },
+      password: process.env.SYNAPSE_ADMIN_PASSWORD,
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!adminLogin.ok) throw new Error("Échec de connexion du compte d'administration Synapse");
+  const adminSession = await adminLogin.json();
+  if (!adminSession.access_token) throw new Error("Synapse n'a pas fourni de jeton administrateur");
+  synapseAdminToken = adminSession.access_token;
+
   const port = Number(process.env.PORT || 3000);
   server.listen(port, "0.0.0.0", () => console.log("API prête sur le port " + port));
 }
