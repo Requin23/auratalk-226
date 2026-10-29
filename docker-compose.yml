@@ -74,6 +74,33 @@ services:
       postgres:
         condition: service_healthy
     expose: ["8008"]
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [backend]
+
+  synapse-admin-bootstrap:
+    image: matrixdotorg/synapse:v1.141.0
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ ! -f /data/.auratalk-admin-created ]; then
+          printf '%s' "$SYNAPSE_ADMIN_PASSWORD" > /tmp/admin-password
+          register_new_matrix_user http://synapse:8008 -c /data/homeserver.yaml -u "$SYNAPSE_ADMIN_USER" --password-file /tmp/admin-password --admin --exists-ok
+          rm -f /tmp/admin-password
+          touch /data/.auratalk-admin-created
+        fi
+    environment:
+      SYNAPSE_ADMIN_USER: ${SYNAPSE_ADMIN_USER:-auratalk-admin}
+      SYNAPSE_ADMIN_PASSWORD: ${SYNAPSE_ADMIN_PASSWORD:?Définir SYNAPSE_ADMIN_PASSWORD dans .env}
+    volumes: [synapse_data:/data]
+    depends_on:
+      synapse:
+        condition: service_healthy
     networks: [backend]
 
   element:
@@ -89,7 +116,8 @@ services:
     environment:
       PORT: "3000"
       SYNAPSE_URL: http://synapse:8008
-      SYNAPSE_ADMIN_TOKEN: ${SYNAPSE_ADMIN_TOKEN:?Définir SYNAPSE_ADMIN_TOKEN dans .env}
+      SYNAPSE_ADMIN_USER: ${SYNAPSE_ADMIN_USER:-auratalk-admin}
+      SYNAPSE_ADMIN_PASSWORD: ${SYNAPSE_ADMIN_PASSWORD:?Définir SYNAPSE_ADMIN_PASSWORD dans .env}
       MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:?Définir MATRIX_SERVER_NAME dans .env}
       REDIS_URL: redis://redis:6379
       REVOCATION_API_KEY: ${REVOCATION_API_KEY:?Définir REVOCATION_API_KEY dans .env}
@@ -98,7 +126,9 @@ services:
       redis:
         condition: service_healthy
       synapse:
-        condition: service_started
+        condition: service_healthy
+      synapse-admin-bootstrap:
+        condition: service_completed_successfully
     expose: ["3000"]
     networks: [backend]
 
