@@ -1,4 +1,5 @@
 import * as sdk from "matrix-js-sdk";
+import { decryptAttachment, encryptAttachment } from "matrix-encrypt-attachment";
 import { io } from "socket.io-client";
 import "./styles.css";
 
@@ -234,7 +235,8 @@ function showChat() {
           <header class="conversation-header"><div><span class="eyebrow">Salon chiffré E2EE</span><h2 id="room-title"></h2></div><span class="lock">🔒</span></header>
           <div id="messages" class="messages" aria-live="polite"></div>
           <form id="message-form" class="composer">
-            <textarea name="message" rows="2" maxlength="4000" placeholder="Écrire un message…" required></textarea>
+            <textarea name="message" rows="2" maxlength="4000" placeholder="Écrire un message…"></textarea>
+            <label class="file-picker">Joindre un fichier<input id="file-input" type="file" multiple /></label>
             <button class="primary" type="submit">Envoyer</button>
           </form>
         </div>
@@ -244,6 +246,7 @@ function showChat() {
   document.querySelector("#cancel-room").addEventListener("click", () => document.querySelector("#room-form").classList.add("hidden"));
   document.querySelector("#room-form").addEventListener("submit", createEncryptedRoom);
   document.querySelector("#message-form").addEventListener("submit", sendMessage);
+  document.querySelector("#file-input").addEventListener("change", sendFiles);
   document.querySelector("#logout").onclick = logout;
 }
 
@@ -298,7 +301,11 @@ async function renderTimeline(room) {
     if (event.getType() !== "m.room.message") continue;
     const content = event.getContent();
     if (!content || typeof content.body !== "string") continue;
-    addMessage(content.body, event.getSender() === auth.userId, new Date(event.getTs()));
+    if (content.file?.url) {
+      await addEncryptedFile(content, event.getSender() === auth.userId, new Date(event.getTs()));
+    } else {
+      addMessage(content.body, event.getSender() === auth.userId, new Date(event.getTs()));
+    }
   }
   messages.scrollTop = messages.scrollHeight;
 }
@@ -319,7 +326,8 @@ function addMessage(body, mine, date, pending = false) {
 
 async function createEncryptedRoom(event) {
   event.preventDefault();
-  const data = new FormData(event.currentTarget);
+  const form = event.currentTarget;
+  const data = new FormData(form);
   const name = String(data.get("name")).trim();
   const invite = String(data.get("invites")).split(",").map((value) => value.trim()).filter(Boolean);
   if (invite.some((userId) => !/^@[a-z0-9._=-]+:[a-z0-9.-]+$/i.test(userId))) {
@@ -337,7 +345,7 @@ async function createEncryptedRoom(event) {
         content: { algorithm: "m.megolm.v1.aes-sha2" },
       }],
     });
-    event.currentTarget.reset();
+    form.reset();
     document.querySelector("#room-form").classList.add("hidden");
     notify("Salon privé chiffré créé.");
     await refreshRooms();
@@ -352,7 +360,8 @@ async function sendMessage(event) {
   const form = event.currentTarget;
   const input = form.elements.message;
   const body = input.value.trim();
-  if (!body || !selectedRoomId) return;
+  if (!body) return;
+  if (!selectedRoomId) return;
   const room = client.getRoom(selectedRoomId);
   if (!room || !(await client.getCrypto().isEncryptionEnabledInRoom(selectedRoomId))) {
     return notify("Envoi bloqué : ce salon n’est pas chiffré.");
@@ -373,6 +382,85 @@ async function sendMessage(event) {
     }
     notify(error.message || "Envoi impossible. Le message n’a pas été mis en attente.");
   }
+}
+
+async function sendFiles(event) {
+  const input = event.currentTarget;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  if (!selectedRoomId) {
+    input.value = "";
+    return notify("Choisissez un salon chiffré avant de joindre un fichier.");
+  }
+  if (!navigator.onLine) {
+    input.value = "";
+    return notify("Les pièces jointes hors ligne ne sont pas encore prises en charge ; le fichier n’a pas été enregistré.");
+  }
+  const room = client.getRoom(selectedRoomId);
+  if (!room || !(await client.getCrypto().isEncryptionEnabledInRoom(selectedRoomId))) {
+    input.value = "";
+    return notify("Envoi bloqué : ce salon n’est pas chiffré.");
+  }
+  for (const file of files) {
+    if (file.size > 20 * 1024 * 1024) {
+      notify("Fichier trop volumineux (maximum 20 Mo) : " + file.name);
+      continue;
+    }
+    try {
+      const encrypted = await encryptAttachment(await file.arrayBuffer());
+      const uploaded = await client.uploadContent(new Blob([encrypted.data], { type: "application/octet-stream" }), {
+        type: "application/octet-stream",
+        name: file.name,
+      });
+      const content = {
+        msgtype: "m.file",
+        body: file.name,
+        filename: file.name,
+        info: { mimetype: file.type || "application/octet-stream", size: file.size },
+        file: { url: uploaded.content_uri, ...encrypted.info },
+      };
+      await client.sendEvent(selectedRoomId, "m.room.message", content);
+    } catch (error) {
+      notify("Échec de l’envoi chiffré de " + file.name + " : " + (error.message || "erreur inconnue"));
+    }
+  }
+  input.value = "";
+}
+
+async function addEncryptedFile(content, mine, date) {
+  const item = document.createElement("article");
+  item.className = "bubble" + (mine ? " mine" : "");
+  const link = document.createElement("button");
+  link.className = "file-download";
+  link.type = "button";
+  link.textContent = "Télécharger : " + (content.filename || content.body);
+  link.addEventListener("click", async () => {
+    link.disabled = true;
+    try {
+      const downloadUrl = client.mxcUrlToHttp(content.file.url);
+      if (!downloadUrl) throw new Error("Adresse de média invalide");
+      const response = await fetch(downloadUrl, { cache: "no-store" });
+      if (!response.ok) throw new Error("Téléchargement refusé");
+      const plaintext = await decryptAttachment(await response.arrayBuffer(), content.file);
+      const blob = new Blob([plaintext], { type: content.info?.mimetype || "application/octet-stream" });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = content.filename || content.body || "fichier";
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      notify("Impossible de déchiffrer le fichier : " + (error.message || "erreur inconnue"));
+    } finally {
+      link.disabled = false;
+    }
+  });
+  const meta = document.createElement("small");
+  meta.textContent = date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  item.append(link, meta);
+  const messages = document.querySelector("#messages");
+  messages?.append(item);
+  if (messages) messages.scrollTop = messages.scrollHeight;
 }
 
 async function queueMessage(body) {
@@ -447,9 +535,10 @@ async function installPwa() {
     navigator.serviceWorker.addEventListener("message", (event) => {
       if (event.data?.type === "AURATALK_SYNC_OUTBOX") void flushOutbox();
     });
-    if (!navigator.serviceWorker.controller && !sessionStorage.getItem("auratalk.swReload")) {
+    if (!sessionStorage.getItem("auratalk.swReload")) {
       sessionStorage.setItem("auratalk.swReload", "1");
-      navigator.serviceWorker.addEventListener("controllerchange", () => location.reload(), { once: true });
+      if (navigator.serviceWorker.controller) location.reload();
+      else navigator.serviceWorker.addEventListener("controllerchange", () => location.reload(), { once: true });
     }
     if ("sync" in registration) registration.sync.register("auratalk-outbox").catch(() => {});
   } catch (error) {
