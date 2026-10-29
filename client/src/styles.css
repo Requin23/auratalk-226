@@ -75,3 +75,8 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
   h1 { font-size:26px; }
   .status { font-size:11px; }
 }
+.file-picker { display:flex; align-items:center; min-width:128px; margin:0; padding:10px 12px; border:1px solid #cdd9e4; border-radius:10px; color:#527088; font-size:12px; cursor:pointer; }
+.file-picker input { width:100%; margin-top:6px; padding:0; border:0; font-size:11px; }
+.file-download { display:block; padding:0; border:0; background:transparent; color:#0c655d; font-weight:700; text-align:left; overflow-wrap:anywhere; }
+.file-download:hover { text-decoration:underline; }
+@media (max-width:760px) { .composer { flex-wrap:wrap; } .composer textarea { flex-basis:100%; } .file-picker { flex:1; } }
