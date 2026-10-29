@@ -1,0 +1,12 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": "http://localhost:8080",
+      "server_name": "matrix.auratalk.local"
+    }
+  },
+  "disable_custom_urls": true,
+  "disable_guests": true,
+  "brand": "AuraTalk-226",
+  "default_theme": "dark"
+}
