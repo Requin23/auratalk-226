@@ -45,7 +45,7 @@ curl -X POST http://localhost:8080/api/admin/agents/agent1/revoke \
   -H "Authorization: Bearer $REVOCATION_API_KEY"
 ```
 
-La révocation désactive le compte Synapse, révoque ses jetons, supprime son enrôlement OTP et coupe ses sockets actifs. Synapse retire aussi le compte de ses salons et supprime appareils et clés E2EE ; les événements historiques ne sont pas effacés.
+La révocation désactive le compte Synapse, révoque ses jetons, supprime son enrôlement OTP et coupe ses sockets actifs. Synapse retire aussi le compte de ses salons et supprime appareils et clés E2EE ; les événements historiques ne sont pas effacés. Un appareil hors ligne ne peut pas recevoir une commande de nettoyage à distance : son cache local ne sera supprimé qu’à sa prochaine reconnexion, et cette purge client reste à implémenter.
 
 ## Données et limites du prototype
 
