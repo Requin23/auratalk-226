@@ -272,6 +272,18 @@ function showAdminWorkspace(result) {
     <section class="login-card admin-card admin-wide">
       <div class="admin-title-row"><div><div class="eyebrow">Administration sécurisée</div><h1>Enrôler un agent</h1></div><button id="admin-close" class="quiet" type="button">Fermer la session admin</button></div>
       <p class="muted">Créez un compte réservé aux agents autorisés. L’identifiant et les données d’accès ne seront affichés ici qu’après sa création.</p>
+
+      <section class="revoke-section" aria-labelledby="revoke-title">
+        <div class="eyebrow">Gestion des accès</div>
+        <h2 id="revoke-title">Révoquer un agent</h2>
+        <p class="muted">Désactive le compte, révoque ses sessions et déconnecte ses appareils connectés. Un appareil hors ligne sera bloqué lorsqu’il retrouvera le réseau.</p>
+        <form id="revoke-form">
+          <label>Identifiant Matrix ou identifiant agent<input name="agentId" maxlength="160" placeholder="agent1 ou @agent1:matrix.auratalk.local" autocomplete="off" required /></label>
+          <button class="danger" type="submit">Révoquer l’accès</button>
+        </form>
+        <p id="revoke-message" class="message" role="status" aria-live="polite"></p>
+      </section>
+
       <form id="enroll-form">
         <label>Identifiant de l’agent<input name="agentId" maxlength="64" pattern="[A-Za-z0-9._=-]+" placeholder="agent1" autocomplete="off" required /></label>
         <label>Nom affiché<input name="displayname" maxlength="80" placeholder="Agent de démonstration" autocomplete="off" /></label>
@@ -287,6 +299,7 @@ function showAdminWorkspace(result) {
         <button id="copy-agent-info" class="quiet" type="button">Copier les informations</button>
         <button id="dismiss-agent-info" class="quiet" type="button">Masquer les informations</button>
       </section>
+
     </section>`;
   document.querySelector("#admin-close").addEventListener("click", async () => {
     try { await fetch("/api/admin/session", { method: "DELETE", headers: { Authorization: "Bearer " + adminSessionToken }, cache: "no-store" }); } catch {}
@@ -294,7 +307,41 @@ function showAdminWorkspace(result) {
     showLogin();
   });
   document.querySelector("#enroll-form").addEventListener("submit", enrollAgent);
+  document.querySelector("#revoke-form").addEventListener("submit", revokeAgent);
   if (result) displayEnrollment(result);
+}
+
+async function revokeAgent(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const agentId = String(new FormData(form).get("agentId") || "").trim();
+  if (!agentId) return;
+  if (!window.confirm(`Confirmer la révocation de « ${agentId} » ? Cette action désactive le compte et met fin à ses sessions.`)) return;
+
+  const button = form.querySelector("button[type=submit]");
+  const status = document.querySelector("#revoke-message");
+  button.disabled = true;
+  status.classList.remove("success");
+  status.textContent = "Révocation en cours…";
+  try {
+    const response = await fetch("/api/admin/agents/" + encodeURIComponent(agentId) + "/revoke", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + adminSessionToken },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.revoked !== true) {
+      throw new Error(payload.error || "Le serveur n’a pas confirmé la révocation.");
+    }
+    status.classList.add("success");
+    status.textContent = `Accès révoqué pour ${payload.userId}. Les appareils connectés ont été déconnectés.`;
+    form.reset();
+  } catch (error) {
+    status.classList.remove("success");
+    status.textContent = error.message || "Échec de la révocation. Réessayez ou consultez les journaux.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function enrollAgent(event) {
