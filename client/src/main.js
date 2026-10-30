@@ -14,6 +14,39 @@ let selectedRoomId = "";
 let outbox = [];
 let flushing = false;
 const notifiedEventIds = new Set();
+let unreadCounts = {};
+const locallyReadRooms = new Set();
+const unreadWatchedRooms = new WeakSet();
+
+function unreadStorageKey(userId) {
+  return `auratalk.unread.${userId}`;
+}
+
+function loadUnreadCounts(userId) {
+  try {
+    unreadCounts = JSON.parse(localStorage.getItem(unreadStorageKey(userId)) || "{}");
+  } catch {
+    unreadCounts = {};
+  }
+  locallyReadRooms.clear();
+}
+
+function saveUnreadCounts() {
+  if (auth?.userId) localStorage.setItem(unreadStorageKey(auth.userId), JSON.stringify(unreadCounts));
+}
+
+function markRoomRead(roomId) {
+  unreadCounts[roomId] = 0;
+  locallyReadRooms.add(roomId);
+  saveUnreadCounts();
+  const room = client?.getRoom(roomId);
+  const lastEvent = room?.getLiveTimeline().getEvents().at(-1);
+  if (lastEvent?.getId()) {
+    void client.setRoomReadMarkers(roomId, lastEvent.getId(), lastEvent).catch((error) => {
+      console.warn("Accusé de lecture Matrix indisponible", error.message);
+    });
+  }
+}
 
 const shell = `
   <header class="topbar">
@@ -92,6 +125,9 @@ async function clearLocalData() {
     socket = undefined;
   }
   sessionStorage.removeItem(AUTH_KEY);
+  if (userId) localStorage.removeItem(unreadStorageKey(userId));
+  unreadCounts = {};
+  locallyReadRooms.clear();
   if (userId && indexedDB.databases) {
     const databases = await indexedDB.databases();
     const cryptoDbs = databases
@@ -351,6 +387,7 @@ async function login(event) {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Connexion refusée.");
     auth = { accessToken: result.access_token, userId: result.user_id, deviceId: result.device_id };
+    loadUnreadCounts(auth.userId);
     sessionStorage.setItem(AUTH_KEY, JSON.stringify(auth));
     await startMatrix();
   } catch (error) {
@@ -435,6 +472,13 @@ function showReceivedMessageNotification(event, room) {
   const content = event.getContent();
   const roomName = room.name || "salon chiffré";
   const label = content?.msgtype === "m.file" ? "Nouvelle pièce jointe" : "Nouveau message";
+  if (room.roomId !== selectedRoomId || document.hidden) {
+    unreadCounts[room.roomId] = (unreadCounts[room.roomId] || 0) + 1;
+    locallyReadRooms.delete(room.roomId);
+    saveUnreadCounts();
+  } else {
+    markRoomRead(room.roomId);
+  }
   notify(`${label} reçu dans « ${roomName} »`);
   if (document.hidden && "Notification" in window && Notification.permission === "granted") {
     const alert = new Notification("AuraTalk-226", { body: `${label} dans « ${roomName} »`, tag: eventId || room.roomId });
@@ -511,11 +555,38 @@ async function refreshRooms() {
   const rooms = await encryptedRooms();
   list.replaceChildren();
   for (const room of rooms) {
+    if (!unreadWatchedRooms.has(room)) {
+      room.on("Room.unreadNotifications", () => {
+        if (!locallyReadRooms.has(room.roomId)) {
+          unreadCounts[room.roomId] = Math.max(unreadCounts[room.roomId] || 0, room.getUnreadNotificationCount("total") || 0);
+          saveUnreadCounts();
+        }
+        void refreshRooms();
+      });
+      unreadWatchedRooms.add(room);
+    }
+    if (unreadCounts[room.roomId] === undefined) {
+      unreadCounts[room.roomId] = room.getUnreadNotificationCount("total") || 0;
+      saveUnreadCounts();
+    } else if (!locallyReadRooms.has(room.roomId)) {
+      unreadCounts[room.roomId] = Math.max(unreadCounts[room.roomId], room.getUnreadNotificationCount("total") || 0);
+    }
     const button = document.createElement("button");
     const isInvitation = room.getMyMembership() === "invite";
     button.className = "room-item" + (room.roomId === selectedRoomId ? " selected" : "");
     button.type = "button";
-    button.textContent = (room.name || room.roomId) + (isInvitation ? " · Invitation" : "");
+    const roomLabel = document.createElement("span");
+    roomLabel.className = "room-label";
+    roomLabel.textContent = (room.name || room.roomId) + (isInvitation ? " · Invitation" : "");
+    button.append(roomLabel);
+    const unread = unreadCounts[room.roomId] || 0;
+    if (unread > 0) {
+      const badge = document.createElement("span");
+      badge.className = "unread-badge";
+      badge.textContent = unread > 99 ? "99+" : String(unread);
+      badge.setAttribute("aria-label", `${unread} message${unread > 1 ? "s" : ""} non lu${unread > 1 ? "s" : ""}`);
+      button.append(badge);
+    }
     if (isInvitation) button.setAttribute("aria-label", `Accepter l’invitation au salon ${room.name || room.roomId}`);
     button.addEventListener("click", () => selectRoom(room.roomId));
     list.append(button);
@@ -540,6 +611,7 @@ async function selectRoom(roomId) {
     return notify("Salon non chiffré ou inaccessible : envoi bloqué.");
   }
   selectedRoomId = roomId;
+  markRoomRead(roomId);
   document.querySelector("#empty-state").classList.add("hidden");
   document.querySelector("#conversation-content").classList.remove("hidden");
   document.querySelector("#room-title").textContent = room.name || roomId;
@@ -808,6 +880,7 @@ async function restoreSession() {
     const saved = sessionStorage.getItem(AUTH_KEY);
     if (!saved) return showLogin();
     auth = JSON.parse(saved);
+    loadUnreadCounts(auth.userId);
     await startMatrix();
   } catch {
     sessionStorage.removeItem(AUTH_KEY);
