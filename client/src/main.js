@@ -13,11 +13,12 @@ let adminSessionToken = "";
 let selectedRoomId = "";
 let outbox = [];
 let flushing = false;
+const notifiedEventIds = new Set();
 
 const shell = `
   <header class="topbar">
     <div class="brand"><span class="brand-mark">A</span><div><strong>AuraTalk-226</strong><small>Messagerie souveraine</small></div></div>
-    <div class="status"><span id="network-dot"></span><span id="network-label">Connexion…</span><button id="logout" class="quiet hidden">Déconnexion</button></div>
+    <div class="status"><span id="network-dot"></span><span id="network-label">Connexion…</span><button id="enable-notifications" class="quiet hidden" type="button">Activer les notifications</button><button id="logout" class="quiet hidden">Déconnexion</button></div>
   </header>
   <main id="view"></main>
   <div id="toast" role="status" aria-live="polite"></div>
@@ -390,8 +391,9 @@ async function startMatrix() {
 
 function registerMatrixListeners() {
   client.on("Room.timeline", (event, room, toStartOfTimeline) => {
-    if (toStartOfTimeline || !room || room.roomId !== selectedRoomId) return;
-    void renderTimeline(room);
+    if (toStartOfTimeline || !room) return;
+    showReceivedMessageNotification(event, room);
+    if (room.roomId === selectedRoomId) void renderTimeline(room);
     void refreshRooms();
   });
   client.on("sync", (state, previous, data) => {
@@ -407,8 +409,35 @@ function registerMatrixListeners() {
   });
 }
 
+function showReceivedMessageNotification(event, room) {
+  if (event.getType() !== "m.room.message" || event.getSender() === auth?.userId) return;
+  const eventId = event.getId();
+  if (eventId && notifiedEventIds.has(eventId)) return;
+  if (eventId) {
+    notifiedEventIds.add(eventId);
+    if (notifiedEventIds.size > 2000) notifiedEventIds.delete(notifiedEventIds.values().next().value);
+  }
+  const content = event.getContent();
+  const roomName = room.name || "salon chiffré";
+  const label = content?.msgtype === "m.file" ? "Nouvelle pièce jointe" : "Nouveau message";
+  notify(`${label} reçu dans « ${roomName} »`);
+  if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+    const alert = new Notification("AuraTalk-226", { body: `${label} dans « ${roomName} »`, tag: eventId || room.roomId });
+    alert.onclick = () => { window.focus(); alert.close(); };
+  }
+}
+
 function showChat() {
   document.querySelector("#logout").classList.remove("hidden");
+  const notificationsButton = document.querySelector("#enable-notifications");
+  if ("Notification" in window && Notification.permission === "default") {
+    notificationsButton.classList.remove("hidden");
+    notificationsButton.addEventListener("click", async () => {
+      const permission = await Notification.requestPermission();
+      notificationsButton.classList.add("hidden");
+      notify(permission === "granted" ? "Notifications navigateur activées." : "Notifications navigateur non autorisées ; les alertes restent visibles dans AuraTalk.");
+    }, { once: true });
+  }
   view.innerHTML = `
     <section class="workspace">
       <aside class="sidebar">
@@ -675,10 +704,13 @@ async function addEncryptedFile(content, mine, date) {
   link.addEventListener("click", async () => {
     link.disabled = true;
     try {
-      const downloadUrl = client.mxcUrlToHttp(content.file.url);
+      const downloadUrl = client.mxcUrlToHttp(content.file.url, undefined, undefined, undefined, false, true, true);
       if (!downloadUrl) throw new Error("Adresse de média invalide");
-      const response = await fetch(downloadUrl, { cache: "no-store" });
-      if (!response.ok) throw new Error("Téléchargement refusé");
+      const response = await fetch(downloadUrl, {
+        headers: { Authorization: "Bearer " + auth.accessToken },
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`Téléchargement refusé (HTTP ${response.status})`);
       const plaintext = await decryptAttachment(await response.arrayBuffer(), content.file);
       const blob = new Blob([plaintext], { type: content.info?.mimetype || "application/octet-stream" });
       const objectUrl = URL.createObjectURL(blob);
