@@ -1,0 +1,13 @@
+# Secrets locaux : ne jamais versionner le fichier .env
+.env
+.env.*
+!.env.example
+
+# Dépendances et artefacts de compilation
+**/node_modules/
+client/dist/
+
+# Fichiers temporaires et journaux
+*.log
+.DS_Store
+Thumbs.db
