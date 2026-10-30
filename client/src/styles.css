@@ -50,7 +50,9 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
 .sidebar-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
 .icon-button { width:38px; height:38px; border:0; border-radius:12px; background:#e8f7f4; color:#11796e; font-size:24px; }
 .queue-note { padding:10px 12px; border-radius:9px; background:#f4f7fb; color:#587086; font-size:12px; }
-.room-item { width:100%; padding:12px; margin:3px 0; text-align:left; border:0; border-radius:10px; color:#18334b; background:transparent; overflow:hidden; text-overflow:ellipsis; }
+.room-item { width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; margin:3px 0; text-align:left; border:0; border-radius:10px; color:#18334b; background:transparent; overflow:hidden; }
+.room-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.unread-badge { flex:0 0 auto; min-width:22px; height:22px; display:inline-grid; place-items:center; padding:0 6px; border-radius:999px; background:#c33b32; color:#fff; font-size:11px; font-weight:800; line-height:1; }
 .room-item:hover, .room-item.selected { background:#e8f7f4; color:#0c655d; }
 .room-form { border-top:1px solid #e1e9f0; margin-top:14px; padding-top:10px; }
 .room-form label { font-size:12px; }
