@@ -117,6 +117,10 @@ io.on("connection", (socket) => {
   socket.join("user:" + socket.data.userId);
 });
 
+app.post("/admin/session", authorize, (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ authenticated: true });
+});
+
 app.post("/admin/agents/:agentId/enroll", authorize, async (req, res) => {
   let userId;
   try {
@@ -329,3 +333,4 @@ start().catch((error) => {
   console.error("Démarrage impossible :", error.message);
   process.exit(1);
 });
+
