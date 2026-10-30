@@ -27,6 +27,10 @@ Compose crée le compte d’administration interne Synapse au premier démarrage
 
 ## Enrôler un agent et se connecter
 
+Dans la page AuraTalk, choisir **Espace administrateur** puis saisir la valeur de `REVOCATION_API_KEY` depuis le fichier `.env` local. Cette clé n’est jamais enregistrée dans le navigateur et les routes d’administration la vérifient côté API. L’administrateur choisit l’identifiant, le nom affiché et un mot de passe provisoire (14 caractères minimum). Après création, l’écran admin affiche l’identifiant Matrix, le mot de passe et le secret OTP une seule fois pour remise à l’agent. Fermer ou actualiser la page masque définitivement ce secret; conserver les informations de remise dans un canal sûr.
+
+L’espace d’administration est protégé par la clé API partagée du prototype, et non par un compte administrateur nominatif. Utiliser uniquement sur l’ordinateur local de confiance; le point d’entrée reste en HTTP local.
+
 L’administrateur enrôle uniquement les agents autorisés. Exemple :
 
 ```sh
@@ -59,3 +63,4 @@ Comptes fictifs prévus : `agent1@gouv.bf`, `agent2@gouv.bf`, `revoque@gouv.bf`.
 ## Licence
 
 Le code de ce dépôt est sous licence **Apache-2.0**. Les composants tiers gardent leurs licences respectives.
+
