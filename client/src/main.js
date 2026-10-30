@@ -446,11 +446,14 @@ function showChat() {
 
 async function encryptedRooms() {
   if (!client) return [];
-  const rooms = client.getRooms().filter((room) => room.getMyMembership() === "join");
+  const rooms = client.getRooms().filter((room) => {
+    const membership = room.getMyMembership();
+    return membership === "join" || membership === "invite";
+  });
   const result = [];
   for (const room of rooms) {
     try {
-      if (await client.getCrypto().isEncryptionEnabledInRoom(room.roomId)) result.push(room);
+      if (room.hasEncryptionStateEvent() || await client.getCrypto().isEncryptionEnabledInRoom(room.roomId)) result.push(room);
     } catch (error) {
       console.error("État de chiffrement du salon indisponible", error);
     }
@@ -465,16 +468,30 @@ async function refreshRooms() {
   list.replaceChildren();
   for (const room of rooms) {
     const button = document.createElement("button");
+    const isInvitation = room.getMyMembership() === "invite";
     button.className = "room-item" + (room.roomId === selectedRoomId ? " selected" : "");
     button.type = "button";
-    button.textContent = room.name || room.roomId;
+    button.textContent = (room.name || room.roomId) + (isInvitation ? " · Invitation" : "");
+    if (isInvitation) button.setAttribute("aria-label", `Accepter l’invitation au salon ${room.name || room.roomId}`);
     button.addEventListener("click", () => selectRoom(room.roomId));
     list.append(button);
   }
 }
 
 async function selectRoom(roomId) {
-  const room = client.getRoom(roomId);
+  let room = client.getRoom(roomId);
+  if (room?.getMyMembership() === "invite") {
+    try {
+      if (!room.hasEncryptionStateEvent() && !(await client.getCrypto().isEncryptionEnabledInRoom(roomId))) {
+        return notify("Invitation ignorée : le salon n’est pas chiffré.");
+      }
+      await client.joinRoom(roomId);
+      room = client.getRoom(roomId);
+      await refreshRooms();
+    } catch (error) {
+      return notify(error.message || "Impossible d’accepter l’invitation au salon.");
+    }
+  }
   if (!room || !(await client.getCrypto().isEncryptionEnabledInRoom(roomId))) {
     return notify("Salon non chiffré ou inaccessible : envoi bloqué.");
   }
