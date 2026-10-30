@@ -9,6 +9,7 @@ const DB_NAME = "auratalk-local";
 let client;
 let socket;
 let auth;
+let adminApiKey = "";
 let selectedRoomId = "";
 let outbox = [];
 let flushing = false;
@@ -124,11 +125,140 @@ function showLogin(message = "") {
         <label>Code OTP à 6 chiffres<input name="otp" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required /></label>
         <button class="primary" type="submit">Se connecter</button>
       </form>
+      <button id="open-admin" class="quiet admin-entry" type="button">Espace administrateur</button>
       <p id="login-message" class="message"></p>
       <p class="fine">Les salons affichés et créés dans cette interface sont chiffrés de bout en bout. Les brouillons hors ligne sont conservés dans le stockage local du navigateur jusqu’à leur envoi.</p>
     </section>`;
   document.querySelector("#login-message").textContent = message;
   document.querySelector("#login-form").addEventListener("submit", login);
+  document.querySelector("#open-admin").addEventListener("click", showAdminLogin);
+}
+
+function showAdminLogin(message = "") {
+  document.querySelector("#logout").classList.add("hidden");
+  view.innerHTML = `
+    <section class="login-card admin-card">
+      <div class="eyebrow">Espace réservé à l’administration</div>
+      <h1>Administration des agents</h1>
+      <p class="muted">Saisissez la clé d’administration configurée dans le fichier local .env. Elle reste uniquement en mémoire dans cet onglet.</p>
+      <form id="admin-login-form">
+        <label>Clé d’administration<input name="key" type="password" autocomplete="off" required /></label>
+        <button class="primary" type="submit">Accéder à l’espace admin</button>
+      </form>
+      <p id="admin-login-message" class="message" role="alert"></p>
+      <button id="admin-back" class="quiet" type="button">Retour à la connexion agent</button>
+    </section>`;
+  document.querySelector("#admin-login-message").textContent = message;
+  document.querySelector("#admin-login-form").addEventListener("submit", authenticateAdmin);
+  document.querySelector("#admin-back").addEventListener("click", () => { adminApiKey = ""; showLogin(); });
+}
+
+async function authenticateAdmin(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const key = String(new FormData(form).get("key"));
+  const button = form.querySelector("button");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/admin/session", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(response.status === 401 ? "Clé d’administration invalide." : "Vérification impossible.");
+    adminApiKey = key;
+    showAdminWorkspace();
+  } catch (error) {
+    button.disabled = false;
+    document.querySelector("#admin-login-message").textContent = error.message || "Accès refusé.";
+  }
+}
+
+function showAdminWorkspace(result) {
+  view.innerHTML = `
+    <section class="login-card admin-card admin-wide">
+      <div class="admin-title-row"><div><div class="eyebrow">Administration sécurisée</div><h1>Enrôler un agent</h1></div><button id="admin-close" class="quiet" type="button">Fermer la session admin</button></div>
+      <p class="muted">Créez un compte réservé aux agents autorisés. L’identifiant et les données d’accès ne seront affichés ici qu’après sa création.</p>
+      <form id="enroll-form">
+        <label>Identifiant de l’agent<input name="agentId" maxlength="64" pattern="[A-Za-z0-9._=-]+" placeholder="agent1" autocomplete="off" required /></label>
+        <label>Nom affiché<input name="displayname" maxlength="80" placeholder="Agent de démonstration" autocomplete="off" /></label>
+        <label>Mot de passe provisoire<input name="password" type="password" minlength="14" maxlength="256" autocomplete="new-password" required /></label>
+        <p class="fine admin-hint">Choisissez un mot de passe temporaire d’au moins 14 caractères et remettez-le à l’agent par un canal sûr.</p>
+        <button class="primary" type="submit">Créer le compte et générer son OTP</button>
+      </form>
+      <p id="enroll-message" class="message" role="alert"></p>
+      <section id="enroll-result" class="enroll-result hidden" aria-live="polite">
+        <div class="eyebrow">Compte créé — remise sécurisée requise</div>
+        <p>Communiquez ces informations à l’agent. Le secret OTP ne pourra plus être affiché après fermeture de cette page.</p>
+        <dl><dt>Identifiant Matrix</dt><dd id="result-id"></dd><dt>Mot de passe provisoire</dt><dd id="result-password"></dd><dt>Secret à ajouter dans une application OTP</dt><dd id="result-otp"></dd></dl>
+        <button id="copy-agent-info" class="quiet" type="button">Copier les informations</button>
+        <button id="dismiss-agent-info" class="quiet" type="button">Masquer les informations</button>
+      </section>
+    </section>`;
+  document.querySelector("#admin-close").addEventListener("click", () => { adminApiKey = ""; showLogin(); });
+  document.querySelector("#enroll-form").addEventListener("submit", enrollAgent);
+  if (result) displayEnrollment(result);
+}
+
+async function enrollAgent(event) {
+  event.preventDefault();
+  clearEnrollmentResult();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(new FormData(form));
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  button.textContent = "Création du compte…";
+  document.querySelector("#enroll-message").textContent = "";
+  try {
+    const response = await fetch("/api/admin/agents/" + encodeURIComponent(String(values.agentId).trim()) + "/enroll", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + adminApiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ password: values.password, displayname: values.displayname }),
+      cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Création du compte impossible.");
+    displayEnrollment({ ...payload, password: values.password });
+    form.reset();
+  } catch (error) {
+    document.querySelector("#enroll-message").textContent = error.message || "Création du compte impossible.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Créer le compte et générer son OTP";
+  }
+}
+
+function displayEnrollment(result) {
+  const panel = document.querySelector("#enroll-result");
+  document.querySelector("#result-id").textContent = result.userId;
+  document.querySelector("#result-password").textContent = result.password;
+  document.querySelector("#result-otp").textContent = result.secret;
+  panel.classList.remove("hidden");
+  document.querySelector("#copy-agent-info").onclick = async () => {
+    const details = `Identifiant Matrix: ${result.userId}\nMot de passe provisoire: ${result.password}\nSecret OTP: ${result.secret}`;
+    try { await navigator.clipboard.writeText(details); notify("Informations copiées. Remettez-les à l’agent par un canal sûr."); }
+    catch { notify("Copie indisponible : sélectionnez les informations affichées."); }
+  };
+  document.querySelector("#dismiss-agent-info").onclick = () => {
+    result.userId = "";
+    result.password = "";
+    result.secret = "";
+    result.otpauth_url = "";
+    clearEnrollmentResult();
+  };
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function clearEnrollmentResult() {
+  const panel = document.querySelector("#enroll-result");
+  if (!panel) return;
+  panel.classList.add("hidden");
+  panel.querySelectorAll("dd").forEach((item) => { item.textContent = ""; });
+  const copy = document.querySelector("#copy-agent-info");
+  const dismiss = document.querySelector("#dismiss-agent-info");
+  if (copy) copy.onclick = null;
+  if (dismiss) dismiss.onclick = null;
 }
 
 async function login(event) {
@@ -549,3 +679,4 @@ async function installPwa() {
 document.querySelector("#logout").addEventListener("click", logout);
 void installPwa();
 void restoreSession();
+
