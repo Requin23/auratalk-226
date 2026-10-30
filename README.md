@@ -1,74 +1,50 @@
 # AuraTalk-226
 
-**Prototype de messagerie souveraine pour les agents publics burkinabè**, réalisé par AuraTech (IFOAD / Université Joseph Ki-Zerbo).
+Prototype de messagerie souveraine pour les agents publics burkinabè, développé par AuraTech (IFOAD / Université Joseph Ki-Zerbo) pour le Sprint Technique Pré-Hackathon 226, édition 2026.
 
-## Architecture
+## Concept et architecture
 
-- **Synapse / Matrix** : serveur de messagerie ; la PWA AuraTalk chiffre les salons avec les protocoles Matrix.
-- **PostgreSQL** : données Synapse.
-- **Redis** : sessions applicatives, état d’enrôlement et limitation des tentatives.
-- **PWA AuraTalk** : client Matrix JS SDK local avec crypto Rust/WASM, salons chiffrés, messages synchronisés en temps réel entre agents connectés et file d’envoi hors ligne.
-- **Express + Socket.IO** : enrôlement, connexion avec OTP et révocation.
+AuraTalk permet aux agents pré-enrôlés d’échanger des messages, des fichiers et des salons de groupe chiffrés. Le chiffrement s’appuie sur Matrix Olm/Megolm via le Matrix JS SDK ; aucun algorithme cryptographique n’est développé par l’équipe.
+
+- **Synapse / Matrix** : homeserver et synchronisation des conversations.
+- **PostgreSQL** : stockage Synapse.
+- **Redis** : sessions, enrôlement OTP et état de révocation.
+- **API Node.js / Express / Socket.IO** : enrôlement, contrôle OTP, administration et déconnexion des appareils connectés.
+- **Client PWA JavaScript** : crypto Matrix, notifications, messages et pièces jointes chiffrés, compteurs de non-lus et file d’envoi locale.
 - **Nginx** : point d’entrée local sur le port 8080.
 
-Aucun fournisseur cloud ni service payant n’est requis. Les images Docker doivent toutefois être téléchargées la première fois depuis les registres publics.
+Le code AuraTalk est sous Apache-2.0. Les composants et leurs licences sont répertoriés dans [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). L’équipe choisit l’engagement open source **Créer** : réaliser un client nouveau au-dessus de protocoles et bibliothèques éprouvés.
 
 ## Démarrage
 
-Lancer la pile depuis le dossier du dépôt :
+Depuis le dossier du dépôt, lancer :
 
 ```sh
 docker compose up -d
 ```
 
-Au premier démarrage, Compose génère les secrets aléatoires nécessaires et les conserve dans un volume Docker local. Un fichier `.env` n’est nécessaire que pour personnaliser `MATRIX_SERVER_NAME` avant la première création du serveur. Les images Docker et paquets doivent être obtenus la première fois depuis des registres publics; l’application ne dépend d’aucun service cloud/API tiers pour fonctionner une fois lancée. La fédération Matrix est désactivée.
+Au premier démarrage, Docker Compose génère les secrets locaux dans un volume Docker. Les images doivent être téléchargées depuis les registres publics lors de l’installation initiale ; aucun service cloud ni API externe n’est nécessaire au fonctionnement une fois installé. La fédération Matrix est désactivée.
 
-Compose crée aussi le compte d’administration interne Synapse. La clé d’accès à l’espace admin peut être copiée dans le presse-papiers sous PowerShell avec :
+Pour récupérer la clé d’accès admin dans PowerShell, sans l’afficher dans le terminal :
 
 ```powershell
 docker compose run --rm --no-deps --entrypoint cat secrets-init /run/auratalk-secrets/revocation_api_key | Set-Clipboard
 ```
 
-Au premier accès admin, saisir cette clé : l’interface génère alors un secret OTP à enregistrer dans une application d’authentification. La clé et le code OTP seront requis aux connexions suivantes. Le secret OTP n’est affiché qu’une fois; le conserver dans un gestionnaire de secrets. Le volume `bootstrap_secrets` contient les secrets générés : le sauvegarder avec les autres données persistantes.
+Ouvrir `http://localhost:8080`, choisir **Espace administrateur** et coller la clé. À la première ouverture, configurer le second facteur admin avec une application OTP. L’admin enrôle les comptes autorisés ; chaque agent reçoit un identifiant, un mot de passe provisoire et un secret OTP à remettre par un canal sûr. À la connexion, l’agent saisit son identifiant, son mot de passe et le code OTP à six chiffres.
 
-## Enrôler un agent et se connecter
+## Démonstration
 
-Dans la page AuraTalk, choisir **Espace administrateur**, saisir la clé copiée depuis le volume Docker puis le code OTP. La clé est conservée seulement en mémoire pendant l’authentification; les actions suivantes utilisent une session admin limitée à 15 minutes. L’administrateur choisit l’identifiant, le nom affiché et un mot de passe provisoire (14 caractères minimum). Après création, l’écran admin affiche l’identifiant Matrix, le mot de passe et le secret OTP une seule fois pour remise à l’agent.
+Comptes fictifs prévus : `agent1@gouv.bf`, `agent2@gouv.bf` et `revoque@gouv.bf`. Ils ne sont pas créés automatiquement. L’administrateur doit les enrôler. Ne pas publier de mots de passe, secrets OTP ni clé admin dans le dépôt.
 
-L’espace est protégé par une clé de déploiement partagée plus OTP, pas par une identité administrative nominative. Utiliser uniquement sur un ordinateur local de confiance; le point d’entrée reste en HTTP local.
+Dans deux sessions navigateur, connecter deux agents, créer un salon chiffré en invitant le MXID complet de l’autre agent, puis échanger des messages. Les événements se synchronisent en temps réel ; les salons affichent un compteur de non-lus. Les pièces jointes sont chiffrées côté client et se téléchargent depuis la conversation. Hors ligne, les pièces jointes sont chiffrées avant la mise en file ; les brouillons texte restent en clair dans le stockage local jusqu’à leur envoi.
 
-L’administrateur enrôle uniquement les agents autorisés. Exemple :
+Depuis **Révoquer un agent** dans l’espace admin, saisir `agent1` ou son MXID complet et confirmer. Synapse désactive le compte ; les sessions applicatives sont invalidées et les appareils connectés reçoivent une déconnexion. Un appareil hors ligne ne peut recevoir cette révocation qu’à sa reconnexion.
 
-```sh
-export REVOCATION_API_KEY='REMPLACER_PAR_LA_CLE_DE_VOTRE_FICHIER_ENV'
-curl -X POST http://localhost:8080/api/admin/agents/agent1/enroll \
-  -H "Authorization: Bearer $REVOCATION_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"password":"REMPLACER_PAR_UN_MOT_DE_PASSE_LONG","displayname":"Agent de démonstration"}'
-```
+## Sécurité et limites
 
-Transmettre le secret TOTP renvoyé une seule fois à l’agent par un canal sûr et l’ajouter à une application OTP. Dans AuraTalk, saisir l’identifiant Matrix `agent1`, son mot de passe et le code OTP à six chiffres. Le point d’entrée Matrix de connexion est routé par Nginx vers l’API, qui vérifie le code avant de transmettre le mot de passe à Synapse. Les codes OTP ne sont pas envoyés à Synapse.
+Le serveur stocke des événements chiffrés et des métadonnées nécessaires : identifiants des agents et salons, membres, appareils, horodatages et informations techniques. La fédération est désactivée et les journaux d’accès Nginx sont coupés pour limiter les traces IP. Les états de salon et les erreurs restent visibles ou enregistrés. Le texte des brouillons hors ligne est conservé en clair dans IndexedDB.
 
-Révoquer le compte :
+L’URL est en HTTP pour une démonstration locale ; ne pas exposer le prototype sur un réseau partagé sans TLS. La révocation ne peut pas effacer à distance un cache hors ligne, ni des données déjà copiées ou déchiffrées. Le prototype ne fournit pas encore d’interface Mooré/Dioula, commandes vocales ni archivage légal. La note de sécurité détaillée se trouve dans `DOSSIER/note-securite.md`.
 
-```sh
-curl -X POST http://localhost:8080/api/admin/agents/agent1/revoke \
-  -H "Authorization: Bearer $REVOCATION_API_KEY"
-```
-
-La révocation désactive le compte Synapse, révoque ses jetons, supprime son enrôlement OTP et coupe ses sockets actifs. Synapse retire aussi le compte de ses salons et supprime appareils et clés E2EE ; les événements historiques ne sont pas effacés. Un appareil hors ligne ne peut pas recevoir une commande de nettoyage à distance : son cache local ne sera supprimé qu’à sa prochaine reconnexion, ; la PWA efface son coffre local lors de la détection de la révocation au retour en ligne. Les données déjà copiées ou exportées restent hors de son contrôle.
-
-## Données et limites du prototype
-
-Le client initialise la crypto E2EE du SDK Matrix. Les pièces jointes sont chiffrées et déchiffrées avec le module officiel `matrix-encrypt-attachment` ; la taille maximale de démonstration est de 20 Mo. Synapse chiffre par défaut chaque salon local et le module `synapse/encryption_policy.py` refuse les événements de discussion non chiffrés ; les états de salon (noms, membres, adhésions) restent des métadonnées lisibles. Le serveur conserve également les identifiants de salons, appareils et horodatages. L’adresse IP peut être traitée par le serveur ou le réseau. Nginx n’enregistre pas les requêtes d’accès.
-
-Les messages envoyés aux salons sont synchronisés en temps réel vers les agents connectés au moyen de la synchronisation Matrix. Chaque salon indique le nombre de messages non lus et le compteur se réinitialise à l’ouverture du salon. AuraTalk affiche une alerte à la réception ; les notifications du navigateur sont facultatives. Les messages en attente hors ligne sont transmis lorsque la connexion revient.
-
-Les brouillons texte écrits hors ligne sont conservés en clair dans IndexedDB sur l’appareil jusqu’à leur envoi ; Matrix JS SDK chiffre le message au moment de l’envoi dès que le réseau revient. Les pièces jointes sont chiffrées par le module Matrix officiel avant d’être mises en file d’attente locale; taille maximale de démonstration : 20 Mo. Protéger les appareils et leur profil navigateur. Synapse invalide les sessions et retire l’agent de ses salons lors de la révocation. Les clients connectés reçoivent aussi l’ordre de fermeture par WebSocket. Un appareil entièrement hors ligne ne peut recevoir une révocation ni un ordre d’effacement tant qu’il n’a pas de réseau; le cache local qui a déjà été copié ou déchiffré n’est pas récupérable à distance. Les journaux de requêtes HTTP Synapse sont désactivés pour limiter la conservation des IP; les erreurs applicatives et métadonnées Matrix persistées demeurent. Le point d’entrée est en HTTP pour démonstration locale; ajouter TLS avant tout accès depuis un réseau partagé. Les textes d’interface Mooré/Dioula restent à faire valider et implémenter. Aucun modèle de reconnaissance vocale Mooré/Dioula permissivement licencié et intégré hors-ligne n’est livré dans ce prototype.
-
-Comptes fictifs prévus : `agent1@gouv.bf`, `agent2@gouv.bf`, `revoque@gouv.bf`. Ils ne sont pas créés automatiquement ; seul un compte explicitement enrôlé peut se connecter.
-
-## Licence
-
-Le code de ce dépôt est sous licence **Apache-2.0**. Voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) pour les licences des principaux composants; les dépendances transitives conservent leurs licences respectives.
 
