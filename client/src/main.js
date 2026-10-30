@@ -392,9 +392,24 @@ async function startMatrix() {
 function registerMatrixListeners() {
   client.on("Room.timeline", (event, room, toStartOfTimeline) => {
     if (toStartOfTimeline || !room) return;
-    showReceivedMessageNotification(event, room);
-    if (room.roomId === selectedRoomId) void renderTimeline(room);
-    void refreshRooms();
+    const updateTimeline = (timelineEvent) => {
+      showReceivedMessageNotification(timelineEvent, room);
+      if (room.roomId === selectedRoomId) void renderTimeline(room);
+      void refreshRooms();
+    };
+    if (event.getWireType() === "m.room.encrypted" && event.getType() === "m.room.encrypted") {
+      // The encrypted event can arrive before the SDK has decrypted its body.
+      // Re-render and notify on the event itself once Megolm decryption finishes.
+      event.once("Event.decrypted", (decryptedEvent, error) => {
+        if (error) {
+          console.warn("Événement Matrix reçu mais non déchiffré", error.message);
+          return;
+        }
+        updateTimeline(decryptedEvent);
+      });
+      return;
+    }
+    updateTimeline(event);
   });
   client.on("sync", (state, previous, data) => {
     if (state === "PREPARED" || state === "SYNCING") {
