@@ -67,10 +67,16 @@ function asMxid(value) {
     if (value.slice(value.lastIndexOf(":") + 1) !== serverName) {
       throw new Error("Le compte doit être hébergé sur ce serveur");
     }
+    if (/^@[0-9]+:/.test(value)) {
+      throw new Error("L’identifiant ne peut pas être uniquement numérique ; choisis par exemple agent1");
+    }
     return value;
   }
   if (!/^[a-z0-9._=-]{1,64}$/i.test(value)) {
     throw new Error("Identifiant d’agent invalide");
+  }
+  if (/^[0-9]+$/.test(value)) {
+    throw new Error("L’identifiant ne peut pas être uniquement numérique ; choisis par exemple agent1");
   }
   return "@" + value + ":" + serverName;
 }
