@@ -9,7 +9,7 @@ const DB_NAME = "auratalk-local";
 let client;
 let socket;
 let auth;
-let adminApiKey = "";
+let adminSessionToken = "";
 let selectedRoomId = "";
 let outbox = [];
 let flushing = false;
@@ -140,9 +140,10 @@ function showAdminLogin(message = "") {
     <section class="login-card admin-card">
       <div class="eyebrow">Espace réservé à l’administration</div>
       <h1>Administration des agents</h1>
-      <p class="muted">Saisissez la clé d’administration configurée dans le fichier local .env. Elle reste uniquement en mémoire dans cet onglet.</p>
+      <p class="muted">Saisissez la clé d’administration du fichier local .env et votre code OTP. À la première ouverture, un secret OTP sera généré pour le compte administrateur.</p>
       <form id="admin-login-form">
         <label>Clé d’administration<input name="key" type="password" autocomplete="off" required /></label>
+        <label>Code OTP à 6 chiffres<input name="otp" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" /></label>
         <button class="primary" type="submit">Accéder à l’espace admin</button>
       </form>
       <p id="admin-login-message" class="message" role="alert"></p>
@@ -150,29 +151,83 @@ function showAdminLogin(message = "") {
     </section>`;
   document.querySelector("#admin-login-message").textContent = message;
   document.querySelector("#admin-login-form").addEventListener("submit", authenticateAdmin);
-  document.querySelector("#admin-back").addEventListener("click", () => { adminApiKey = ""; showLogin(); });
+  document.querySelector("#admin-back").addEventListener("click", showLogin);
 }
 
 async function authenticateAdmin(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const key = String(new FormData(form).get("key"));
+  const values = new FormData(form);
+  const key = String(values.get("key"));
+  const otp = String(values.get("otp") || "").trim();
   const button = form.querySelector("button");
   button.disabled = true;
   try {
     const response = await fetch("/api/admin/session", {
       method: "POST",
       headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ otp }),
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(response.status === 401 ? "Clé d’administration invalide." : "Vérification impossible.");
-    adminApiKey = key;
+    const payload = await response.json();
+    if (response.status === 428 && payload.code === "ADMIN_OTP_SETUP_REQUIRED") {
+      const bootstrap = await fetch("/api/admin/session/bootstrap", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+        body: "{}",
+        cache: "no-store",
+      });
+      const setup = await bootstrap.json();
+      if (!bootstrap.ok) throw new Error(setup.error || "Configuration OTP impossible.");
+      showAdminOtpSetup(key, setup.secret);
+      return;
+    }
+    if (!response.ok) throw new Error(payload.error || "Accès administrateur refusé.");
+    adminSessionToken = payload.token;
     showAdminWorkspace();
   } catch (error) {
     button.disabled = false;
     document.querySelector("#admin-login-message").textContent = error.message || "Accès refusé.";
   }
+}
+
+function showAdminOtpSetup(adminKey, secret) {
+  view.innerHTML = `
+    <section class="login-card admin-card">
+      <div class="eyebrow">Configuration OTP administrateur</div>
+      <h1>Active ton second facteur</h1>
+      <p class="muted">Ajoute ce secret à une application OTP. Il ne sera affiché qu’une seule fois; conserve-le dans un gestionnaire de secrets si tu dois pouvoir récupérer l’accès.</p>
+      <p class="otp-secret" id="admin-otp-secret"></p>
+      <form id="admin-otp-setup-form">
+        <label>Code OTP à 6 chiffres<input name="otp" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required /></label>
+        <button class="primary" type="submit">Valider et ouvrir l’administration</button>
+      </form>
+      <p id="admin-otp-message" class="message" role="alert"></p>
+      <button id="admin-setup-back" class="quiet" type="button">Annuler</button>
+    </section>`;
+  document.querySelector("#admin-otp-secret").textContent = secret;
+  document.querySelector("#admin-otp-setup-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const otp = String(new FormData(event.currentTarget).get("otp")).trim();
+    const submit = event.currentTarget.querySelector("button");
+    submit.disabled = true;
+    try {
+      const response = await fetch("/api/admin/session", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + adminKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ otp }),
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Code OTP invalide.");
+      adminSessionToken = payload.token;
+      showAdminWorkspace();
+    } catch (error) {
+      submit.disabled = false;
+      document.querySelector("#admin-otp-message").textContent = error.message || "Code OTP invalide.";
+    }
+  });
+  document.querySelector("#admin-setup-back").addEventListener("click", showLogin);
 }
 
 function showAdminWorkspace(result) {
@@ -196,7 +251,11 @@ function showAdminWorkspace(result) {
         <button id="dismiss-agent-info" class="quiet" type="button">Masquer les informations</button>
       </section>
     </section>`;
-  document.querySelector("#admin-close").addEventListener("click", () => { adminApiKey = ""; showLogin(); });
+  document.querySelector("#admin-close").addEventListener("click", async () => {
+    try { await fetch("/api/admin/session", { method: "DELETE", headers: { Authorization: "Bearer " + adminSessionToken }, cache: "no-store" }); } catch {}
+    adminSessionToken = "";
+    showLogin();
+  });
   document.querySelector("#enroll-form").addEventListener("submit", enrollAgent);
   if (result) displayEnrollment(result);
 }
@@ -218,7 +277,7 @@ async function enrollAgent(event) {
   try {
     const response = await fetch("/api/admin/agents/" + encodeURIComponent(agentId) + "/enroll", {
       method: "POST",
-      headers: { Authorization: "Bearer " + adminApiKey, "Content-Type": "application/json" },
+      headers: { Authorization: "Bearer " + adminSessionToken, "Content-Type": "application/json" },
       body: JSON.stringify({ password: values.password, displayname: values.displayname }),
       cache: "no-store",
     });
@@ -362,7 +421,7 @@ function showChat() {
           <button class="primary" type="submit">Créer un salon chiffré</button>
           <button id="cancel-room" type="button" class="quiet">Annuler</button>
         </form>
-        <div class="local-note"><strong>Mode hors ligne</strong><span>Les brouillons restent sur cet appareil et partent dès le retour du réseau.</span></div>
+        <div class="local-note"><strong>Mode hors ligne</strong><span>Les messages en attente et pièces jointes chiffrées partent au retour du réseau.</span></div>
       </aside>
       <section class="conversation">
         <div id="empty-state" class="empty-state"><div class="empty-icon">✦</div><h2>Choisissez un salon</h2><p>Les nouveaux salons sont chiffrés dès leur création.</p></div>
@@ -527,10 +586,6 @@ async function sendFiles(event) {
     input.value = "";
     return notify("Choisissez un salon chiffré avant de joindre un fichier.");
   }
-  if (!navigator.onLine) {
-    input.value = "";
-    return notify("Les pièces jointes hors ligne ne sont pas encore prises en charge ; le fichier n’a pas été enregistré.");
-  }
   const room = client.getRoom(selectedRoomId);
   if (!room || !(await client.getCrypto().isEncryptionEnabledInRoom(selectedRoomId))) {
     input.value = "";
@@ -543,23 +598,54 @@ async function sendFiles(event) {
     }
     try {
       const encrypted = await encryptAttachment(await file.arrayBuffer());
-      const uploaded = await client.uploadContent(new Blob([encrypted.data], { type: "application/octet-stream" }), {
-        type: "application/octet-stream",
-        name: file.name,
-      });
-      const content = {
-        msgtype: "m.file",
-        body: file.name,
-        filename: file.name,
-        info: { mimetype: file.type || "application/octet-stream", size: file.size },
-        file: { url: uploaded.content_uri, ...encrypted.info },
-      };
-      await client.sendEvent(selectedRoomId, "m.room.message", content);
+      if (!navigator.onLine) {
+        const item = {
+          id: crypto.randomUUID(),
+          kind: "file",
+          userId: auth.userId,
+          roomId: selectedRoomId,
+          name: file.name,
+          mimetype: file.type || "application/octet-stream",
+          size: file.size,
+          ciphertext: new Uint8Array(encrypted.data),
+          encryptionInfo: encrypted.info,
+          createdAt: Date.now(),
+        };
+        await putOutbox(item);
+        addMessage("Fichier en attente : " + file.name, true, new Date(item.createdAt), true);
+        await refreshOutboxCount();
+        navigator.serviceWorker?.ready.then((registration) => registration.sync?.register("auratalk-outbox")).catch(() => {});
+        notify("Fichier chiffré conservé sur cet appareil pour envoi au retour du réseau.");
+      } else {
+        await uploadEncryptedFile({
+          roomId: selectedRoomId,
+          name: file.name,
+          mimetype: file.type || "application/octet-stream",
+          size: file.size,
+          ciphertext: encrypted.data,
+          encryptionInfo: encrypted.info,
+        });
+      }
     } catch (error) {
       notify("Échec de l’envoi chiffré de " + file.name + " : " + (error.message || "erreur inconnue"));
     }
   }
   input.value = "";
+}
+
+async function uploadEncryptedFile(item) {
+  const uploaded = await client.uploadContent(new Blob([item.ciphertext], { type: "application/octet-stream" }), {
+    type: "application/octet-stream",
+    name: item.name,
+  });
+  const content = {
+    msgtype: "m.file",
+    body: item.name,
+    filename: item.name,
+    info: { mimetype: item.mimetype, size: item.size },
+    file: { url: uploaded.content_uri, ...item.encryptionInfo },
+  };
+  await client.sendEvent(item.roomId, "m.room.message", content);
 }
 
 async function addEncryptedFile(content, mine, date) {
@@ -601,6 +687,7 @@ async function addEncryptedFile(content, mine, date) {
 async function queueMessage(body) {
   const item = {
     id: crypto.randomUUID(),
+    kind: "message",
     userId: auth.userId,
     roomId: selectedRoomId,
     body,
@@ -630,7 +717,8 @@ async function flushOutbox() {
     for (const item of pending.sort((a, b) => a.createdAt - b.createdAt)) {
       const room = client.getRoom(item.roomId);
       if (!room || !(await client.getCrypto().isEncryptionEnabledInRoom(item.roomId))) continue;
-      await client.sendTextMessage(item.roomId, item.body);
+      if (item.kind === "file") await uploadEncryptedFile(item);
+      else await client.sendTextMessage(item.roomId, item.body);
       await removeOutbox(item.id);
     }
     await refreshOutboxCount();
