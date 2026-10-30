@@ -51,7 +51,7 @@ function decryptSecret(value) {
   return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString("utf8");
 }
 
-function authorize(req, res, next) {
+function authorizeApiKey(req, res, next) {
   const provided = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const expected = process.env.REVOCATION_API_KEY;
   const a = Buffer.from(provided);
@@ -60,6 +60,20 @@ function authorize(req, res, next) {
     return res.status(401).json({ error: "Non autorisé" });
   }
   next();
+}
+
+async function authorize(req, res, next) {
+  const provided = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (provided.length < 32) return res.status(401).json({ error: "Session administrateur requise" });
+  try {
+    const tokenHash = crypto.createHash("sha256").update(provided).digest("hex");
+    if (!(await redis.get("admin:session:" + tokenHash))) {
+      return res.status(401).json({ error: "Session administrateur expirée ou invalide" });
+    }
+    next();
+  } catch {
+    return res.status(503).json({ error: "Vérification de la session admin indisponible" });
+  }
 }
 
 function asMxid(value) {
@@ -123,8 +137,44 @@ io.on("connection", (socket) => {
   socket.join("user:" + socket.data.userId);
 });
 
-app.post("/admin/session", authorize, (_req, res) => {
-  res.set("Cache-Control", "no-store").json({ authenticated: true });
+app.post("/admin/session/bootstrap", authorizeApiKey, async (_req, res) => {
+  try {
+    if (await redis.get("admin:totp_secret")) {
+      return res.status(409).json({ error: "OTP administrateur déjà configuré" });
+    }
+    const secret = authenticator.generateSecret();
+    await redis.set("admin:totp_secret", encryptSecret(secret));
+    return res.set("Cache-Control", "no-store").status(201).json({ secret });
+  } catch {
+    return res.status(503).json({ error: "Configuration OTP indisponible" });
+  }
+});
+
+app.post("/admin/session", authorizeApiKey, async (req, res) => {
+  try {
+    const storedSecret = await redis.get("admin:totp_secret");
+    if (!storedSecret) {
+      return res.status(428).json({ code: "ADMIN_OTP_SETUP_REQUIRED", error: "L’OTP administrateur doit être configuré" });
+    }
+    const otp = req.body && req.body.otp;
+    if (typeof otp !== "string" || !/^[0-9]{6}$/.test(otp) ||
+        !authenticator.check(otp, decryptSecret(storedSecret))) {
+      return res.status(401).json({ error: "Code OTP administrateur invalide" });
+    }
+    const token = crypto.randomBytes(32).toString("base64url");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await redis.set("admin:session:" + tokenHash, "active", { EX: 900 });
+    return res.set("Cache-Control", "no-store").json({ authenticated: true, token, expiresIn: 900 });
+  } catch {
+    return res.status(503).json({ error: "Authentification administrateur indisponible" });
+  }
+});
+
+app.delete("/admin/session", authorize, async (req, res) => {
+  const token = (req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  await redis.del("admin:session:" + tokenHash);
+  return res.status(204).end();
 });
 
 app.post("/admin/agents/:agentId/enroll", authorize, async (req, res) => {
