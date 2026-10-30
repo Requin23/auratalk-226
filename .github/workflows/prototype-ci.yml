@@ -1,0 +1,37 @@
+name: Prototype CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, feat/initial-matrix-revocation]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      MATRIX_SERVER_NAME: matrix.auratalk.local
+      POSTGRES_PASSWORD: ci-postgres-placeholder
+      SYNAPSE_ADMIN_USER: auratalk-admin
+      SYNAPSE_ADMIN_PASSWORD: ci-admin-placeholder
+      REVOCATION_API_KEY: ci-revocation-placeholder
+      TOTP_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Vérifier la syntaxe de l’API
+        run: node --check backend/revoke.js
+      - name: Construire le client PWA
+        working-directory: client
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - name: Valider Docker Compose
+        run: docker compose config --quiet
+      - name: Construire les images AuraTalk
+        run: docker compose build api pwa

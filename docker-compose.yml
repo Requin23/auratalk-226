@@ -1,0 +1,224 @@
+name: auratalk-226
+
+services:
+  secrets-init:
+    image: alpine:3.20
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        make_secret() { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
+        ensure_secret() {
+          file="$$1"
+          value="$$2"
+          if [ ! -s "$$file" ]; then
+            if [ -n "$$value" ]; then printf '%s' "$$value" > "$$file"; else make_secret > "$$file"; fi
+          fi
+          chmod 0444 "$$file"
+        }
+        ensure_secret /run/auratalk-secrets/postgres_password "$$POSTGRES_PASSWORD"
+        ensure_secret /run/auratalk-secrets/synapse_admin_password "$$SYNAPSE_ADMIN_PASSWORD"
+        ensure_secret /run/auratalk-secrets/revocation_api_key "$$REVOCATION_API_KEY"
+        ensure_secret /run/auratalk-secrets/totp_encryption_key "$$TOTP_ENCRYPTION_KEY"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      SYNAPSE_ADMIN_PASSWORD: ${SYNAPSE_ADMIN_PASSWORD:-}
+      REVOCATION_API_KEY: ${REVOCATION_API_KEY:-}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+    volumes: [bootstrap_secrets:/run/auratalk-secrets]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: synapse
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD_FILE: /run/auratalk-secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --locale=C --encoding=UTF8
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - bootstrap_secrets:/run/auratalk-secrets:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [backend]
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [backend]
+
+  synapse-init:
+    image: matrixdotorg/synapse:v1.141.0
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ ! -f /data/homeserver.yaml ]; then
+          /start.py generate
+        fi
+        cat > /data/overrides.yaml <<YAML
+        database:
+          name: psycopg2
+          args:
+            user: synapse
+            password: $$(cat /run/auratalk-secrets/postgres_password)
+            database: synapse
+            host: postgres
+            port: 5432
+            cp_min: 5
+            cp_max: 10
+        enable_registration: false
+        federation_domain_whitelist: []
+        trusted_key_servers: []
+        suppress_key_server_warning: true
+        encryption_enabled_by_default_for_room_type: all
+        log_config: /data/auratalk-log.yaml
+        modules:
+          - module: encryption_policy.RequireEncryptedTimelineEvents
+        YAML
+        cat > /data/auratalk-log.yaml <<'YAML'
+        version: 1
+        disable_existing_loggers: false
+        formatters:
+          concise:
+            format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        handlers:
+          console:
+            class: logging.StreamHandler
+            formatter: concise
+        loggers:
+          synapse.access.http:
+            level: CRITICAL
+            handlers: [console]
+            propagate: false
+          synapse.access.https:
+            level: CRITICAL
+            handlers: [console]
+            propagate: false
+          synapse.storage.SQL:
+            level: WARNING
+        root:
+          level: WARNING
+          handlers: [console]
+        YAML
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-matrix.auratalk.local}
+      SYNAPSE_REPORT_STATS: "no"
+      POSTGRES_INITDB_ARGS: --locale=C --encoding=UTF8
+    volumes:
+      - synapse_data:/data
+      - bootstrap_secrets:/run/auratalk-secrets:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  synapse:
+    image: matrixdotorg/synapse:v1.141.0
+    restart: unless-stopped
+    command:
+      - run
+      - --config-path=/data/homeserver.yaml
+      - --config-path=/data/overrides.yaml
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+      PYTHONPATH: /modules
+    volumes:
+      - synapse_data:/data
+      - ./synapse/encryption_policy.py:/modules/encryption_policy.py:ro
+    depends_on:
+      synapse-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    expose: ["8008"]
+    healthcheck:
+      test: ["CMD", "curl", "-fSs", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [backend]
+
+  synapse-admin-bootstrap:
+    image: matrixdotorg/synapse:v1.141.0
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ ! -f /data/.auratalk-admin-created ]; then
+          cat /run/auratalk-secrets/synapse_admin_password > /tmp/admin-password
+          register_new_matrix_user http://synapse:8008 -c /data/homeserver.yaml -u "$$SYNAPSE_ADMIN_USER" --password-file /tmp/admin-password --admin --exists-ok
+          rm -f /tmp/admin-password
+          touch /data/.auratalk-admin-created
+        fi
+    environment:
+      SYNAPSE_ADMIN_USER: ${SYNAPSE_ADMIN_USER:-auratalk-admin}
+    volumes:
+      - synapse_data:/data
+      - bootstrap_secrets:/run/auratalk-secrets:ro
+    depends_on:
+      synapse:
+        condition: service_healthy
+    networks: [backend]
+
+  pwa:
+    build: ./client
+    restart: unless-stopped
+    expose: ["80"]
+    networks: [backend]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      SYNAPSE_URL: http://synapse:8008
+      SYNAPSE_ADMIN_USER: ${SYNAPSE_ADMIN_USER:-auratalk-admin}
+      MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-matrix.auratalk.local}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+      synapse-admin-bootstrap:
+        condition: service_completed_successfully
+    expose: ["3000"]
+    volumes: [bootstrap_secrets:/run/auratalk-secrets:ro]
+    networks: [backend]
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["8080:80"]
+    volumes: [./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro]
+    depends_on: [synapse, pwa, api]
+    networks: [backend]
+
+volumes:
+  bootstrap_secrets:
+  postgres_data:
+  redis_data:
+  synapse_data:
+
+networks:
+  backend:
+    driver: bridge
+
