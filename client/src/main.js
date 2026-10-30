@@ -455,7 +455,7 @@ function showChat() {
       <section class="conversation">
         <div id="empty-state" class="empty-state"><div class="empty-icon">✦</div><h2>Choisissez un salon</h2><p>Les nouveaux salons sont chiffrés dès leur création.</p></div>
         <div id="conversation-content" class="conversation-content hidden">
-          <header class="conversation-header"><div><span class="eyebrow">Salon chiffré E2EE</span><h2 id="room-title"></h2></div><span class="lock">🔒</span></header>
+          <header class="conversation-header"><div><span class="eyebrow">Salon chiffré E2EE · messages en temps réel</span><h2 id="room-title"></h2></div><span class="lock">🔒</span></header>
           <div id="messages" class="messages" aria-live="polite"></div>
           <form id="message-form" class="composer">
             <textarea name="message" rows="2" maxlength="4000" placeholder="Écrire un message…"></textarea>
