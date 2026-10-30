@@ -1,4 +1,4 @@
-const CACHE_NAME = "auratalk-shell-v1";
+const CACHE_NAME = "auratalk-shell-v2";
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -54,3 +54,4 @@ self.addEventListener("sync", (event) => {
 self.addEventListener("message", (event) => {
   if (event.data === "AURATALK_SYNC_OUTBOX") event.waitUntil(requestPageSync());
 });
+
