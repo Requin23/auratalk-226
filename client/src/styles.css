@@ -37,6 +37,7 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
 .admin-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .admin-title-row .quiet { flex-shrink:0; }
 .admin-hint { margin:8px 0 14px; font-size:12px; }
+.otp-secret { padding:12px; border-radius:9px; background:#f0faf7; font-family:ui-monospace,monospace; font-weight:700; overflow-wrap:anywhere; user-select:all; }
 .enroll-result { margin-top:24px; padding:20px; border:1px solid #b9e6da; border-radius:14px; background:#f0faf7; color:#18334b; }
 .enroll-result p { color:#486277; line-height:1.5; }
 .enroll-result dl { display:grid; grid-template-columns:minmax(180px, .8fr) 1.2fr; gap:10px 16px; margin:18px 0; }
