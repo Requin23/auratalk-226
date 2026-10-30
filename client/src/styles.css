@@ -31,6 +31,18 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
 .primary:hover { background:#0c655d; }
 .primary:disabled { opacity:.6; cursor:wait; }
 .login-card .primary { width:100%; margin-top:6px; }
+.admin-entry { display:block; margin:18px auto 0; color:#11796e; font-weight:700; }
+.admin-card { max-width:560px; }
+.admin-wide { width:min(100% - 32px, 760px); }
+.admin-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.admin-title-row .quiet { flex-shrink:0; }
+.admin-hint { margin:8px 0 14px; font-size:12px; }
+.enroll-result { margin-top:24px; padding:20px; border:1px solid #b9e6da; border-radius:14px; background:#f0faf7; color:#18334b; }
+.enroll-result p { color:#486277; line-height:1.5; }
+.enroll-result dl { display:grid; grid-template-columns:minmax(180px, .8fr) 1.2fr; gap:10px 16px; margin:18px 0; }
+.enroll-result dt { color:#587086; font-size:13px; font-weight:700; }
+.enroll-result dd { margin:0; padding:9px 11px; border-radius:8px; background:white; overflow-wrap:anywhere; font-family:ui-monospace, monospace; font-size:13px; }
+.enroll-result .quiet { margin:4px 8px 0 0; }
 .message { min-height:20px; color:#b44739; font-size:13px; }
 .workspace { display:grid; grid-template-columns:320px 1fr; min-height:calc(100vh - 76px); }
 .sidebar { display:flex; flex-direction:column; padding:28px 20px; background:white; border-right:1px solid #e1e9f0; }
@@ -72,6 +84,10 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
   .conversation { min-height:50vh; padding:18px 16px; }
   .conversation-content { height:55vh; }
   .login-card { margin:28px auto; padding:26px 22px; }
+  .admin-title-row { display:block; }
+  .admin-title-row .quiet { padding-left:0; }
+  .enroll-result dl { grid-template-columns:1fr; gap:5px; }
+  .enroll-result dd { margin-bottom:8px; }
   h1 { font-size:26px; }
   .status { font-size:11px; }
 }
@@ -80,3 +96,4 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
 .file-download { display:block; padding:0; border:0; background:transparent; color:#0c655d; font-weight:700; text-align:left; overflow-wrap:anywhere; }
 .file-download:hover { text-decoration:underline; }
 @media (max-width:760px) { .composer { flex-wrap:wrap; } .composer textarea { flex-basis:100%; } .file-picker { flex:1; } }
+
