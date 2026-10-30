@@ -44,6 +44,13 @@ input:focus, textarea:focus { border-color:#168a7a; box-shadow:0 0 0 3px #168a7a
 .enroll-result dt { color:#587086; font-size:13px; font-weight:700; }
 .enroll-result dd { margin:0; padding:9px 11px; border-radius:8px; background:white; overflow-wrap:anywhere; font-family:ui-monospace, monospace; font-size:13px; }
 .enroll-result .quiet { margin:4px 8px 0 0; }
+.revoke-section { margin-top:30px; padding-top:24px; border-top:1px solid #e1e9f0; }
+.revoke-section h2 { margin-top:7px; }
+.revoke-section .muted { font-size:13px; }
+.danger { border:0; border-radius:10px; padding:12px 18px; background:#a83232; color:white; font-weight:700; }
+.danger:hover { background:#862626; }
+.danger:disabled { opacity:.6; cursor:wait; }
+.message.success { color:#14704d; }
 .message { min-height:20px; color:#b44739; font-size:13px; }
 .workspace { display:grid; grid-template-columns:320px 1fr; min-height:calc(100vh - 76px); }
 .sidebar { display:flex; flex-direction:column; padding:28px 20px; background:white; border-right:1px solid #e1e9f0; }
