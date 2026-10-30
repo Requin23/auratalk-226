@@ -4,7 +4,7 @@
 
 ## Architecture
 
-- **Synapse / Matrix** : serveur de messagerie ; les clients Element chiffrent les salons E2EE avec les protocoles Matrix.
+- **Synapse / Matrix** : serveur de messagerie ; la PWA AuraTalk chiffre les salons avec les protocoles Matrix.
 - **PostgreSQL** : données Synapse.
 - **Redis** : sessions applicatives, état d’enrôlement et limitation des tentatives.
 - **PWA AuraTalk** : client Matrix JS SDK local avec crypto Rust/WASM, salons chiffrés et file d’envoi hors ligne.
@@ -30,13 +30,14 @@ Compose crée le compte d’administration interne Synapse au premier démarrage
 L’administrateur enrôle uniquement les agents autorisés. Exemple :
 
 ```sh
+export REVOCATION_API_KEY='REMPLACER_PAR_LA_CLE_DE_VOTRE_FICHIER_ENV'
 curl -X POST http://localhost:8080/api/admin/agents/agent1/enroll \
   -H "Authorization: Bearer $REVOCATION_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"password":"REMPLACER_PAR_UN_MOT_DE_PASSE_LONG","displayname":"Agent de démonstration"}'
 ```
 
-Transmettre le secret TOTP renvoyé une seule fois à l’agent par un canal sûr et l’ajouter à une application OTP. Dans Element, saisir l’identifiant Matrix `agent1` et le mot de passe sous la forme `mot_de_passe|code_OTP`. Le point d’entrée Matrix de connexion est routé par Nginx vers l’API, qui vérifie le code avant de transmettre le mot de passe à Synapse. Les codes OTP ne sont pas envoyés à Synapse.
+Transmettre le secret TOTP renvoyé une seule fois à l’agent par un canal sûr et l’ajouter à une application OTP. Dans AuraTalk, saisir l’identifiant Matrix `agent1`, son mot de passe et le code OTP à six chiffres. Le point d’entrée Matrix de connexion est routé par Nginx vers l’API, qui vérifie le code avant de transmettre le mot de passe à Synapse. Les codes OTP ne sont pas envoyés à Synapse.
 
 Révoquer le compte :
 
@@ -45,7 +46,7 @@ curl -X POST http://localhost:8080/api/admin/agents/agent1/revoke \
   -H "Authorization: Bearer $REVOCATION_API_KEY"
 ```
 
-La révocation désactive le compte Synapse, révoque ses jetons, supprime son enrôlement OTP et coupe ses sockets actifs. Synapse retire aussi le compte de ses salons et supprime appareils et clés E2EE ; les événements historiques ne sont pas effacés. Un appareil hors ligne ne peut pas recevoir une commande de nettoyage à distance : son cache local ne sera supprimé qu’à sa prochaine reconnexion, et cette purge client reste à implémenter.
+La révocation désactive le compte Synapse, révoque ses jetons, supprime son enrôlement OTP et coupe ses sockets actifs. Synapse retire aussi le compte de ses salons et supprime appareils et clés E2EE ; les événements historiques ne sont pas effacés. Un appareil hors ligne ne peut pas recevoir une commande de nettoyage à distance : son cache local ne sera supprimé qu’à sa prochaine reconnexion, ; la PWA efface son coffre local lors de la détection de la révocation au retour en ligne. Les données déjà copiées ou exportées restent hors de son contrôle.
 
 ## Données et limites du prototype
 
