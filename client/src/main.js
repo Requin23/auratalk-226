@@ -206,12 +206,17 @@ async function enrollAgent(event) {
   clearEnrollmentResult();
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form));
+  const agentId = String(values.agentId).trim();
+  if (/^[0-9]+$/.test(agentId)) {
+    document.querySelector("#enroll-message").textContent = "L’identifiant ne peut pas être uniquement numérique. Essaie par exemple agent1.";
+    return;
+  }
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   button.textContent = "Création du compte…";
   document.querySelector("#enroll-message").textContent = "";
   try {
-    const response = await fetch("/api/admin/agents/" + encodeURIComponent(String(values.agentId).trim()) + "/enroll", {
+    const response = await fetch("/api/admin/agents/" + encodeURIComponent(agentId) + "/enroll", {
       method: "POST",
       headers: { Authorization: "Bearer " + adminApiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ password: values.password, displayname: values.displayname }),
